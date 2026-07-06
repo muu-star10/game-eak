@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuestBoard - RPG Productivity Hub</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Floating SFX toggle in corner -->
+  <div class="audio-control" id="audio-toggle-btn" title="Toggle Sound Effects">
+    <i class="fa-solid fa-volume-high"></i>
+  </div>
+
+  <!-- AUTH SCREEN -->
+  <div id="auth-screen" class="screen active">
+    <div class="auth-card">
+      <div class="auth-header">
+        <h1 class="logo-text">QUESTBOARD</h1>
+        <p class="subtitle-text">Level up your productivity, vanquish your laziness.</p>
+      </div>
+      
+      <div class="auth-tabs">
+        <button class="auth-tab-btn active" id="tab-login" onclick="switchAuthTab('login')">LOGIN</button>
+        <button class="auth-tab-btn" id="tab-register" onclick="switchAuthTab('register')">REGISTER</button>
+      </div>
+
+      <form id="auth-form" onsubmit="handleAuthSubmit(event)">
+        <div class="form-group" id="username-group" style="display: none;">
+          <label for="auth-username"><i class="fa-solid fa-user"></i> Username</label>
+          <input type="text" id="auth-username" placeholder="Choose a username...">
+        </div>
+        <div class="form-group">
+          <label for="auth-email"><i class="fa-solid fa-envelope"></i> Email Address</label>
+          <input type="email" id="auth-email" required placeholder="name@domain.com">
+        </div>
+        <div class="form-group">
+          <label for="auth-password"><i class="fa-solid fa-lock"></i> Password</label>
+          <input type="password" id="auth-password" required placeholder="••••••••">
+        </div>
+        <button type="submit" id="auth-submit-btn" class="rpg-btn primary-glow">
+          <span class="btn-text">ENTER THE REALM</span>
+        </button>
+      </form>
+      <div id="auth-error-msg" class="error-msg"></div>
+    </div>
+  </div>
+
+  <!-- MAIN APP SCREEN -->
+  <div id="app-screen" class="screen">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <!-- CHARACTER SUMMARY CARD -->
+      <div class="character-panel">
+        <div class="character-avatar-container" onclick="openAvatarModal()" style="cursor: pointer;" title="Change Avatar Class">
+          <div class="character-avatar" id="char-avatar">🛡️</div>
+          <div class="level-badge" id="char-level">LV. 1</div>
+        </div>
+        <div class="character-info">
+          <h3 id="char-name">Hero</h3>
+          
+          <!-- HP Bar -->
+          <div class="status-bar-container" title="Health Points: Deducts when tasks are overdue. Dies at 0.">
+            <div class="status-label">
+              <span>HP</span>
+              <span id="char-hp-text">100/100</span>
+            </div>
+            <div class="status-bar hp-bar">
+              <div class="status-bar-fill" id="char-hp-fill" style="width: 100%"></div>
+            </div>
+          </div>
+
+          <!-- XP Bar -->
+          <div class="status-bar-container" title="Experience Points: Level up every time XP reaches Level x 100.">
+            <div class="status-label">
+              <span>XP</span>
+              <span id="char-xp-text">0/100</span>
+            </div>
+            <div class="status-bar xp-bar">
+              <div class="status-bar-fill" id="char-xp-fill" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Gold Counter -->
+          <div class="gold-counter" title="Gold: Earned from quests. Spend it in the Shop.">
+            <span class="coin-icon"><i class="fa-solid fa-coins animate-spin"></i></span>
+            <span id="char-gold">0</span> <span class="gold-label">GOLD</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- NAV SECTIONS -->
+      <nav class="sidebar-nav">
+        <div class="nav-section">
+          <div class="nav-section-header">
+            <h4>WORKSPACES</h4>
+            <button class="add-icon-btn" onclick="openModal('create-workspace-modal')" title="Create New Workspace">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+          
+          <div class="nav-subheader">Solo Quests</div>
+          <ul class="workspace-list" id="solo-workspaces-list">
+            <!-- Dynamic Solo Workspaces -->
+          </ul>
+
+          <div class="nav-subheader">Guild (Group) Quests</div>
+          <ul class="workspace-list" id="group-workspaces-list">
+            <!-- Dynamic Group Workspaces -->
+          </ul>
+        </div>
+
+        <!-- ADVENTURE LOG SECTION -->
+        <div class="nav-section" style="margin-top: 15px; border-top: 1px solid rgba(212, 175, 55, 0.15); padding-top: 12px; display: flex; flex-direction: column; flex: 1; min-height: 150px; max-height: 250px;">
+          <div class="nav-section-header">
+            <h4>ADVENTURE LOG</h4>
+          </div>
+          <div class="adventure-log-panel" id="adventure-log-list" style="flex: 1; overflow-y: auto; font-size: 11px; background: rgba(0,0,0,0.2); border-radius: 4px; padding: 8px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 4px;">
+            <!-- Dynamic logs -->
+            <div style="color:var(--text-muted); text-align:center; padding-top:10px;">No adventures logged yet.</div>
+          </div>
+        </div>
+      </nav>
+
+      <!-- SIDEBAR FOOTER -->
+      <div class="sidebar-footer">
+        <button class="footer-btn" onclick="openShopModal()">
+          <i class="fa-solid fa-store"></i> Reward Shop
+        </button>
+        <button class="footer-btn" onclick="openModal('test-panel-modal')">
+          <i class="fa-solid fa-flask"></i> Debug Portal
+        </button>
+        <button class="footer-btn logout" onclick="handleLogout()">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </button>
+      </div>
+    </aside>
+
+    <!-- CONTENT AREA -->
+    <main class="content-area">
+      <!-- WORKSPACE HEADER -->
+      <header class="workspace-header">
+        <div class="workspace-details">
+          <h2 id="current-workspace-title">Select a Workspace</h2>
+          <p id="current-workspace-desc">Choose or create a workspace to begin your adventure.</p>
+        </div>
+        
+        <!-- Group Member Panel (Only visible for Group Workspaces) -->
+        <div class="workspace-meta" id="group-members-panel" style="display: none;">
+          <div class="member-avatars" id="workspace-members-avatars">
+            <!-- Dynamic members list -->
+          </div>
+          <button class="rpg-btn-sm secondary-glow" onclick="openModal('invite-member-modal')">
+            <i class="fa-solid fa-user-plus"></i> Invite Guildmate
+          </button>
+        </div>
+      </header>
+
+      <!-- KANBAN BOARD -->
+      <div class="kanban-board" id="kanban-board-container" style="display: none;">
+        <!-- TO DO -->
+        <div class="kanban-column" id="col-todo" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'todo')">
+          <div class="column-header">
+            <h3><i class="fa-regular fa-circle-play text-todo"></i> TO DO</h3>
+            <span class="quest-count" id="count-todo">0</span>
+          </div>
+          <button class="rpg-btn-sm block-btn primary-glow add-quest-trigger" onclick="openCreateQuestModal()">
+            <i class="fa-solid fa-plus"></i> Add New Quest
+          </button>
+          <div class="card-list" id="list-todo">
+            <!-- Quests cards -->
+          </div>
+        </div>
+
+        <!-- IN PROGRESS -->
+        <div class="kanban-column" id="col-inprogress" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'inprogress')">
+          <div class="column-header">
+            <h3><i class="fa-solid fa-sword text-inprogress"></i> IN PROGRESS</h3>
+            <span class="quest-count" id="count-inprogress">0</span>
+          </div>
+          <div class="card-list" id="list-inprogress">
+            <!-- Quests cards -->
+          </div>
+        </div>
+
+        <!-- DONE -->
+        <div class="kanban-column" id="col-done" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'done')">
+          <div class="column-header">
+            <h3><i class="fa-regular fa-circle-check text-done"></i> DONE</h3>
+            <span class="quest-count" id="count-done">0</span>
+          </div>
+          <div class="card-list" id="list-done">
+            <!-- Quests cards -->
+          </div>
+        </div>
+      </div>
+
+      <!-- EMPTY STATE -->
+      <div class="empty-workspace-state" id="empty-workspace-state">
+        <div class="state-graphic">⚔️</div>
+        <h3>No Workspace Active</h3>
+        <p>Select a workspace from the sidebar or build a new guild/solo campaign to track your progress.</p>
+        <button class="rpg-btn primary-glow" onclick="openModal('create-workspace-modal')">
+          <span>CREATE NEW WORKSPACE</span>
+        </button>
+      </div>
+    </main>
+  </div>
+
+  <!-- FLOATING ANNOUNCEMENT (LEVEL UP/DAMAGE) -->
+  <div class="floating-announcer" id="rpg-announcer">
+    <div class="announcement-card" id="announcement-card">
+      <h1 id="announcement-title">LEVEL UP!</h1>
+      <p id="announcement-body">You have ascended to a new tier of productivity.</p>
+    </div>
+  </div>
+
+  <!-- ==================== MODALS ==================== -->
+
+  <!-- CREATE WORKSPACE MODAL -->
+  <div class="modal-overlay" id="create-workspace-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Create Workspace</h3>
+        <button class="close-btn" onclick="closeModal('create-workspace-modal')">&times;</button>
+      </div>
+      <form id="create-workspace-form" onsubmit="handleCreateWorkspace(event)">
+        <div class="form-group">
+          <label for="ws-title"><i class="fa-solid fa-shield-halved"></i> Workspace Title</label>
+          <input type="text" id="ws-title" required placeholder="e.g. School Assignments, Gym Training...">
+        </div>
+        <div class="form-group">
+          <label for="ws-desc"><i class="fa-solid fa-align-left"></i> Description</label>
+          <textarea id="ws-desc" rows="3" placeholder="What is the goal of this workspace..."></textarea>
+        </div>
+        <div class="form-group row-group">
+          <label class="checkbox-container">
+            <input type="checkbox" id="ws-is-group">
+            <span class="checkmark"></span>
+            Guild Workspace (Group Collaboration)
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="rpg-btn secondary-glow" onclick="closeModal('create-workspace-modal')">Cancel</button>
+          <button type="submit" class="rpg-btn primary-glow">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- INVITE MEMBER MODAL -->
+  <div class="modal-overlay" id="invite-member-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Invite Guildmate</h3>
+        <button class="close-btn" onclick="closeModal('invite-member-modal')">&times;</button>
+      </div>
+      <form id="invite-member-form" onsubmit="handleInviteMember(event)">
+        <div class="form-group">
+          <label for="invite-identifier"><i class="fa-solid fa-envelope"></i> Username or Email</label>
+          <input type="text" id="invite-identifier" required placeholder="Enter guildmate's username or email...">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="rpg-btn secondary-glow" onclick="closeModal('invite-member-modal')">Cancel</button>
+          <button type="submit" class="rpg-btn primary-glow">Send Invitation</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- CREATE QUEST MODAL -->
+  <div class="modal-overlay" id="create-quest-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Post New Quest</h3>
+        <button class="close-btn" onclick="closeModal('create-quest-modal')">&times;</button>
+      </div>
+      <form id="create-quest-form" onsubmit="handleCreateQuest(event)">
+        <div class="form-group">
+          <label for="quest-title">Quest Title</label>
+          <input type="text" id="quest-title" required placeholder="e.g. Complete Biology Lab Report">
+        </div>
+        <div class="form-group">
+          <label for="quest-desc">Description & Instructions</label>
+          <textarea id="quest-desc" rows="3" placeholder="Provide background info, resources, or criteria..."></textarea>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="quest-difficulty">Difficulty Tier</label>
+            <select id="quest-difficulty">
+              <option value="easy">Easy (+10G / +15XP)</option>
+              <option value="medium" selected>Medium (+20G / +30XP)</option>
+              <option value="hard">Hard (+50G / +75XP)</option>
+              <option value="epic">Epic (+100G / +150XP)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="quest-deadline">Deadline</label>
+            <input type="datetime-local" id="quest-deadline" required>
+          </div>
+        </div>
+        <div class="form-group" id="quest-assignee-group" style="display: none;">
+          <label for="quest-assignee">Assign To</label>
+          <select id="quest-assignee">
+            <!-- Dynamic members options -->
+          </select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="rpg-btn secondary-glow" onclick="closeModal('create-quest-modal')">Cancel</button>
+          <button type="submit" class="rpg-btn primary-glow">Post Quest</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- QUEST DETAIL MODAL -->
+  <div class="modal-overlay" id="quest-detail-modal">
+    <div class="modal-card large">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px; flex:1;">
+          <span style="color:var(--gold); font-size:16px;"><i class="fa-solid fa-pen-to-square"></i></span>
+          <input type="text" id="qd-edit-title" class="inline-title-input" placeholder="Quest Title" style="font-family: var(--font-display); font-size: 18px; font-weight: bold; background: transparent; border: none; border-bottom: 1px dashed var(--gold); color: var(--gold); width: 85%; padding: 4px; outline:none;">
+        </div>
+        <button class="close-btn" onclick="closeModal('quest-detail-modal')">&times;</button>
+      </div>
+      
+      <div class="quest-detail-body">
+        <!-- Left Side: Detail & Subquests -->
+        <div class="qd-left">
+          <div class="qd-meta-badges" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <div style="display:flex; flex-direction:column; gap:3px;">
+              <span style="font-size:9px; text-transform:uppercase; color:var(--text-muted); font-weight:bold;">Difficulty</span>
+              <select id="qd-edit-difficulty" class="rpg-select-sm" style="background:#0f1115; border:1px solid var(--gold); color:var(--gold); font-size:11px; padding:5px 8px; border-radius:3px; outline:none; cursor:pointer;">
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+                <option value="epic">Epic</option>
+              </select>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:3px;">
+              <span style="font-size:9px; text-transform:uppercase; color:var(--text-muted); font-weight:bold;">Status</span>
+              <span class="status-badge" id="qd-status-badge" style="padding:5px 10px; font-size:11px; display:inline-block; margin-top:2px;">To Do</span>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:3px;">
+              <span style="font-size:9px; text-transform:uppercase; color:var(--text-muted); font-weight:bold;">Deadline</span>
+              <div class="deadline-input-container" style="display:flex; align-items:center; gap:4px; font-size:11px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.15); padding:3px 8px; border-radius:3px;">
+                <i class="fa-regular fa-clock" style="color:var(--text-muted);"></i>
+                <input type="datetime-local" id="qd-edit-deadline" style="background:transparent; border:none; color:var(--text-main); font-family:var(--font-body); font-size:11px; outline:none;">
+              </div>
+            </div>
+          </div>
+
+          <div class="qd-description-section">
+            <h4>Description & Instructions</h4>
+            <textarea id="qd-edit-desc" class="inline-edit-textarea" rows="4" placeholder="Describe the quest details..." style="width: 100%; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text-main); font-family: var(--font-body); font-size: 13.5px; resize: vertical; outline:none; transition: border-color 0.2s;"></textarea>
+          </div>
+
+          <!-- SUB QUESTS SECTION -->
+          <div class="qd-subquests-section">
+            <div class="subquests-header">
+              <h4>Sub-Quests Checklist</h4>
+              <span id="qd-subquest-progress">0/0 Completed</span>
+            </div>
+            
+            <ul class="subquests-list" id="qd-subquests-list">
+              <!-- Dynamic sub-quests checkboxes -->
+            </ul>
+
+            <form class="add-subquest-form" onsubmit="handleAddSubQuest(event)">
+              <input type="text" id="new-subquest-input" required placeholder="Add sub-quest step...">
+              <button type="submit" class="rpg-btn-sm primary-glow"><i class="fa-solid fa-plus"></i></button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Right Side: Assignee & Discussion Feed -->
+        <div class="qd-right">
+          <div class="qd-assignee-card">
+            <h4>Assignee</h4>
+            <div class="assignee-display" id="qd-assignee-display">
+              <span class="avatar">👤</span>
+              <span class="name">Unassigned</span>
+            </div>
+            <!-- Assignee Changer (Group Workspaces Only) -->
+            <div id="qd-assignee-change-container" style="display: none; margin-top: 8px;">
+              <select id="qd-assignee-select" onchange="handleAssigneeChange(this.value)">
+                <!-- Members -->
+              </select>
+            </div>
+          </div>
+
+          <!-- COMMENTS DISCUSSIONS -->
+          <div class="qd-comments-section">
+            <h4>Guild Discussion</h4>
+            <div class="comments-list" id="qd-comments-list">
+              <!-- Comments -->
+            </div>
+            <form class="comments-form" onsubmit="handleAddComment(event)">
+              <input type="text" id="new-comment-input" required placeholder="Send message to guild...">
+              <button type="submit" class="send-comment-btn"><i class="fa-solid fa-paper-plane"></i></button>
+            </form>
+          </div>
+        </div>
+      </div>
+      
+      <div class="modal-footer justify-between">
+        <button class="rpg-btn danger-glow" onclick="handleDeleteQuest()">Delete Quest</button>
+        <div style="display:flex; gap:8px;">
+          <button class="rpg-btn primary-glow" onclick="handleSaveQuestDetails()">Save Changes</button>
+          <button class="rpg-btn secondary-glow" onclick="closeModal('quest-detail-modal')">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- REWARD SHOP MODAL -->
+  <div class="modal-overlay" id="reward-shop-modal">
+    <div class="modal-card large">
+      <div class="modal-header">
+        <h3>The Reward Shop</h3>
+        <button class="close-btn" onclick="closeModal('reward-shop-modal')">&times;</button>
+      </div>
+
+      <div class="shop-body">
+        <!-- Shop Header status -->
+        <div class="shop-status-header">
+          <div class="shop-gold-status">
+            <span>Your Balance:</span>
+            <span class="gold-val"><span id="shop-char-gold">0</span> Gold</span>
+          </div>
+          <p>Exchange your hard-earned gold for real-life rewards. Purchase costs are automatically deducted.</p>
+        </div>
+
+        <!-- Reward Creator Panel -->
+        <div class="reward-creator-panel">
+          <h4>Create Custom Self-Reward</h4>
+          <form class="reward-creator-form" onsubmit="handleCreateCustomReward(event)">
+            <input type="text" id="reward-title" required placeholder="e.g. Main game 1 jam, Makan pizza, Nonton film...">
+            <input type="number" id="reward-cost" min="1" required placeholder="Cost in Gold (e.g. 100)">
+            <button type="submit" class="rpg-btn primary-glow">Add to Shop</button>
+          </form>
+        </div>
+
+        <!-- Rewards Grid -->
+        <div class="rewards-section">
+          <h4>Available Rewards</h4>
+          <div class="rewards-grid" id="rewards-grid">
+            <!-- Dynamic Rewards -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEBUG / TEST PANEL MODAL -->
+  <div class="modal-overlay" id="test-panel-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Guild Debug & Verification Portal</h3>
+        <button class="close-btn" onclick="closeModal('test-panel-modal')">&times;</button>
+      </div>
+      <div class="modal-body debug-portal-body">
+        <p>Run simulated scenarios to test RPG game logic, calculations, and data consistency.</p>
+        
+        <div class="debug-actions">
+          <button class="rpg-btn primary-glow" onclick="runAutomatedTests()">
+            <i class="fa-solid fa-play"></i> Run Logic Test Suite
+          </button>
+          <button class="rpg-btn primary-glow" onclick="openSQLExportModal()">
+            <i class="fa-solid fa-database"></i> Export SQL Data (phpMyAdmin/Supabase)
+          </button>
+          <button class="rpg-btn danger-glow" onclick="simulateOverdueCheck()">
+            <i class="fa-solid fa-clock"></i> Simulate Anti-Malas Check (Force Deadline Expiry)
+          </button>
+          <button class="rpg-btn secondary-glow" onclick="resetDatabase()">
+            <i class="fa-solid fa-trash-can"></i> Reset Database
+          </button>
+        </div>
+
+        <div class="test-results-log">
+          <h4>Test Results Logs</h4>
+          <div class="log-screen" id="debug-log-screen">
+            No tests executed yet. Click "Run Logic Test Suite" to verify system algorithms.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="rpg-btn primary-glow" onclick="closeModal('test-panel-modal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AVATAR SELECTION MODAL -->
+  <div class="modal-overlay" id="avatar-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Select Avatar Class</h3>
+        <button class="close-btn" onclick="closeModal('avatar-modal')">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <p style="margin-bottom: 15px; font-size:14px; color:var(--text-muted);">Choose your hero class to customize your avatar. This changes your icon across all guild panels.</p>
+        <div class="avatar-catalog-grid" id="avatar-catalog-grid" style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+          <!-- Dynamic Avatars -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="rpg-btn secondary-glow" onclick="closeModal('avatar-modal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SQL EXPORT MODAL -->
+  <div class="modal-overlay" id="sql-export-modal">
+    <div class="modal-card large">
+      <div class="modal-header">
+        <h3>Export SQL Schema & Seed Data</h3>
+        <button class="close-btn" onclick="closeModal('sql-export-modal')">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px; display:flex; flex-direction:column; gap:15px; max-height:70vh; overflow-y:auto;">
+        <p style="font-size: 13px; color: var(--text-muted);">Copy the queries below to run in phpMyAdmin or the Supabase SQL editor to seed your database.</p>
+        
+        <div class="form-group" style="margin-bottom:0;">
+          <label style="font-family:var(--font-display); color:var(--gold); font-size:12px;"><i class="fa-solid fa-bolt"></i> Supabase / PostgreSQL SQL</label>
+          <textarea id="sql-export-postgres" rows="6" readonly style="font-family:monospace; font-size:11px; background:#000; color:#00ff00; width:100%; border:1px solid var(--gold); padding:8px; outline:none; resize:vertical;"></textarea>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label style="font-family:var(--font-display); color:var(--gold); font-size:12px;"><i class="fa-solid fa-server"></i> phpMyAdmin / MySQL SQL</label>
+          <textarea id="sql-export-mysql" rows="6" readonly style="font-family:monospace; font-size:11px; background:#000; color:#00ff00; width:100%; border:1px solid var(--gold); padding:8px; outline:none; resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="rpg-btn primary-glow" onclick="copySQLText('sql-export-postgres')">Copy Postgres SQL</button>
+        <button class="rpg-btn primary-glow" onclick="copySQLText('sql-export-mysql')">Copy MySQL SQL</button>
+        <button class="rpg-btn secondary-glow" onclick="closeModal('sql-export-modal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== APPS SCRIPTS ==================== -->
+  <script src="app.js"></script>
+</body>
+</html>
