@@ -1142,6 +1142,9 @@ p {
 .difficulty-badge.epic { background: var(--epic-color); color: #fff; box-shadow: 0 0 5px var(--epic-color); }
 
 .status-badge { background: rgba(255, 255, 255, 0.1); color: var(--text-main); text-transform: uppercase; }
+.status-badge.status-todo { background: rgba(46, 213, 115, 0.12); color: var(--easy-color); border: 1px solid rgba(46, 213, 115, 0.3); }
+.status-badge.status-inprogress { background: rgba(30, 144, 255, 0.12); color: var(--medium-color); border: 1px solid rgba(30, 144, 255, 0.3); }
+.status-badge.status-done { background: rgba(212, 175, 55, 0.12); color: var(--gold); border: 1px solid rgba(212, 175, 55, 0.3); }
 .deadline-badge { background: rgba(255, 255, 255, 0.05); color: var(--text-muted); }
 .deadline-badge.overdue {
   background: rgba(255, 63, 52, 0.1);

@@ -885,6 +885,72 @@ function handleDrop(event, targetColumn) {
   });
 }
 
+function handleQuestVerticalReorder(draggedId, targetId, position) {
+  if (draggedId === targetId || !draggedId || !targetId) return;
+
+  const quests = DB.get(DB.KEYS.QUESTS);
+  const wsQuests = quests.filter(q => q.workspace_id === state.activeWorkspaceId);
+  wsQuests.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  const draggedQuest = wsQuests.find(q => q.id === draggedId);
+  const targetQuest = wsQuests.find(q => q.id === targetId);
+
+  if (!draggedQuest || !targetQuest) return;
+
+  const targetStatus = targetQuest.status;
+
+  // Check sub-quest completion rule if moving to done
+  if (targetStatus === 'done' && draggedQuest.status !== 'done') {
+    const subQuests = DB.get(DB.KEYS.SUB_QUESTS);
+    const qSubQuests = subQuests.filter(sq => sq.quest_id === draggedId);
+    const allCompleted = qSubQuests.every(sq => sq.is_completed);
+    if (!allCompleted) {
+      SoundFX.play('fail');
+      alert(`⚠️ QUEST LOCKED!\n\nYou must check off all Sub-Quests before you can resolve "${draggedQuest.title}".`);
+      return;
+    }
+  }
+
+  // Update status if moving between columns
+  if (draggedQuest.status !== targetStatus) {
+    DB.update(DB.KEYS.QUESTS, draggedId, { status: targetStatus });
+    if (targetStatus === 'done') {
+      awardQuestRewards({ ...draggedQuest, status: targetStatus });
+    }
+    draggedQuest.status = targetStatus;
+  }
+
+  // Build ordered list for the target column (excluding dragged quest)
+  const columnQuests = wsQuests.filter(q => {
+    if (q.id === draggedId) return false;
+    return q.status === targetStatus;
+  });
+
+  const targetIndex = columnQuests.findIndex(q => q.id === targetId);
+  const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
+
+  // Insert dragged quest at the correct position
+  columnQuests.splice(insertIndex, 0, { ...draggedQuest, status: targetStatus });
+
+  // Reassign order values for the target column
+  columnQuests.forEach((q, idx) => {
+    DB.update(DB.KEYS.QUESTS, q.id, { order: (idx + 1) * 10 });
+  });
+
+  SoundFX.play('click');
+  renderKanbanCards();
+
+  state.draggedQuestId = null;
+  state.dragSourceColumn = null;
+
+  broadcastSync({
+    type: 'QUEST_CARD_MOVED',
+    workspaceId: state.activeWorkspaceId,
+    questId: draggedId,
+    targetColumn: targetStatus
+  });
+}
+
 // ==================== RPG GAMEPLAY ENGINE ====================
 function awardQuestRewards(quest) {
   const rewards = DIFFICULTY_MATRIX[quest.difficulty] || DIFFICULTY_MATRIX.medium;
@@ -921,6 +987,13 @@ function awardQuestRewards(quest) {
   // Trigger floating XP/Gold feedback animation
   showFloatingRewardText(`+${rewards.gold} Gold! \n+${rewards.xp} XP!`);
   SoundFX.play('coin');
+
+  // Log adventure events for XP and Gold gain
+  logAdventureEvent(quest.assigned_to, 'xp_gain', `Quest Complete: "${quest.title}" — +${rewards.xp} XP gained!`);
+  logAdventureEvent(quest.assigned_to, 'gold_gain', `Quest Complete: "${quest.title}" — +${rewards.gold} Gold earned!`);
+  if (leveledUp) {
+    logAdventureEvent(quest.assigned_to, 'general', `⬆️ Level UP! Ascended to Level ${level}!`);
+  }
 
   // If assignee is current logged-in user, refresh UI and play level up
   if (quest.assigned_to === state.currentUser.id) {
@@ -1048,6 +1121,9 @@ function runAntiMalasCheck() {
 
     // Update quest as penalized in database
     DB.update(DB.KEYS.QUESTS, quest.id, { penalized: true });
+
+    // Log individual quest penalty to adventure log
+    logAdventureEvent(userId, 'damage_taken', `⚠️ Missed deadline: "${quest.title}" — -${penalty.damage} HP penalty!`);
   });
 
   // Apply damage
@@ -1085,6 +1161,11 @@ function runAntiMalasCheck() {
     level: character.level, 
     gold: character.gold 
   };
+
+  // Log death event to adventure log
+  if (died) {
+    logAdventureEvent(userId, 'death', `💀 Character died from accumulated overdue quests! Lost 1 level (LV.${oldLv} → LV.${newLv}) and -${lostGold} Gold.`);
+  }
 
   // Sound & alert feedback
   setTimeout(() => {
@@ -1157,6 +1238,10 @@ function handleCreateQuest(event) {
     assignedTo = parseInt(document.getElementById('quest-assignee').value);
   }
 
+  // Calculate order — new quest goes to the TOP of Todo column
+  const existingTodoQuests = DB.get(DB.KEYS.QUESTS).filter(q => q.workspace_id === state.activeWorkspaceId && q.status === 'todo');
+  const minOrder = existingTodoQuests.length > 0 ? Math.min(...existingTodoQuests.map(q => q.order || 0)) - 10 : 10;
+
   // Insert quest
   const newQuest = DB.insert(DB.KEYS.QUESTS, {
     workspace_id: state.activeWorkspaceId,
@@ -1166,7 +1251,8 @@ function handleCreateQuest(event) {
     status: 'todo',
     difficulty,
     deadline: new Date(deadline).toISOString(),
-    penalized: false
+    penalized: false,
+    order: minOrder
   });
 
   closeModal('create-quest-modal');
@@ -1192,46 +1278,48 @@ function openQuestDetailModal(questId) {
   const quest = quests.find(q => q.id === questId);
   if (!quest) return;
 
-  document.getElementById('qd-title').innerText = quest.title;
-  document.getElementById('qd-desc').innerText = quest.description || 'No descriptions provided.';
+  // Fill inline-editable form fields
+  document.getElementById('qd-edit-title').value = quest.title;
+  document.getElementById('qd-edit-desc').value = quest.description || '';
+  document.getElementById('qd-edit-difficulty').value = quest.difficulty;
 
-  // Meta badges
-  const difficultyBadge = document.getElementById('qd-difficulty');
-  difficultyBadge.innerText = quest.difficulty;
-  difficultyBadge.className = `difficulty-badge ${quest.difficulty}`;
-
-  const statusBadge = document.getElementById('qd-status-badge');
-  statusBadge.innerText = quest.status.toUpperCase();
-
-  // Deadline Status
-  const dlBadge = document.getElementById('qd-deadline');
+  // Format deadline for datetime-local input (convert UTC to local time)
   const deadlineDate = new Date(quest.deadline);
+  const localDeadline = new Date(deadlineDate.getTime() - deadlineDate.getTimezoneOffset() * 60000);
+  document.getElementById('qd-edit-deadline').value = localDeadline.toISOString().slice(0, 16);
+
+  // Status badge (display only — status changed via kanban drag-drop)
+  const statusBadge = document.getElementById('qd-status-badge');
+  const statusLabels = { todo: 'To Do', inprogress: 'In Progress', done: 'Done' };
+  statusBadge.innerText = statusLabels[quest.status] || quest.status.toUpperCase();
+  statusBadge.className = `status-badge status-${quest.status}`;
+
+  // Overdue highlight on deadline field
   const isOverdue = deadlineDate < new Date() && quest.status !== 'done';
-  
-  dlBadge.querySelector('span').innerText = deadlineDate.toLocaleString();
-  if (isOverdue) {
-    dlBadge.className = 'deadline-badge overdue';
-  } else {
-    dlBadge.className = 'deadline-badge';
+  const deadlineContainer = document.getElementById('qd-edit-deadline').parentElement;
+  if (deadlineContainer) {
+    deadlineContainer.style.borderColor = isOverdue ? 'var(--hp-red)' : 'rgba(255,255,255,0.15)';
   }
 
-  // Setup Assignee Changing
+  // Setup Assignee
   const ws = DB.get(DB.KEYS.WORKSPACES).find(w => w.id === quest.workspace_id);
   const assigneeContainer = document.getElementById('qd-assignee-change-container');
   const assigneeDisplay = document.getElementById('qd-assignee-display');
   const users = DB.get(DB.KEYS.USERS);
+  const characters = DB.get(DB.KEYS.CHARACTERS);
   const assigneeUser = users.find(u => u.id === quest.assigned_to);
+  const assigneeChar = characters.find(c => c.user_id === quest.assigned_to);
+  const assigneeAvatar = assigneeChar ? assigneeChar.avatar : '👤';
 
-  // Default display
   assigneeDisplay.querySelector('.name').innerText = assigneeUser ? assigneeUser.username : 'Unassigned';
-  assigneeDisplay.querySelector('.avatar').innerText = assigneeUser ? assigneeUser.username.substring(0, 2).toUpperCase() : '👤';
+  assigneeDisplay.querySelector('.avatar').innerText = assigneeAvatar;
 
   if (ws && ws.is_group) {
     assigneeContainer.style.display = 'block';
-    
+
     const members = DB.get(DB.KEYS.MEMBERS);
     const wsMembers = members.filter(m => m.workspace_id === ws.id);
-    
+
     const select = document.getElementById('qd-assignee-select');
     select.innerHTML = '';
 
@@ -1254,6 +1342,45 @@ function openQuestDetailModal(questId) {
   renderComments();
 
   openModal('quest-detail-modal');
+}
+
+function handleSaveQuestDetails() {
+  if (!state.activeQuestId) return;
+
+  const title = document.getElementById('qd-edit-title').value.trim();
+  const description = document.getElementById('qd-edit-desc').value.trim();
+  const difficulty = document.getElementById('qd-edit-difficulty').value;
+  const deadlineValue = document.getElementById('qd-edit-deadline').value;
+
+  if (!title) {
+    alert('Quest title cannot be empty!');
+    return;
+  }
+  if (!deadlineValue) {
+    alert('Please set a deadline for the quest!');
+    return;
+  }
+
+  DB.update(DB.KEYS.QUESTS, state.activeQuestId, {
+    title,
+    description,
+    difficulty,
+    deadline: new Date(deadlineValue).toISOString(),
+    penalized: false  // Reset penalized flag if deadline was extended
+  });
+
+  SoundFX.play('coin');
+  showFloatingRewardText('✓ Quest Saved!');
+  renderKanbanCards();
+
+  // Refresh modal with updated data
+  openQuestDetailModal(state.activeQuestId);
+
+  broadcastSync({
+    type: 'QUEST_CARD_MOVED',
+    workspaceId: state.activeWorkspaceId,
+    questId: state.activeQuestId
+  });
 }
 
 function renderSubQuests() {
@@ -1467,16 +1594,18 @@ function renderShop() {
     card.className = 'reward-item-card';
 
     card.innerHTML = `
-      <div class="reward-item-details">
+      <div class="reward-item-details" id="reward-details-${r.id}">
         <span class="reward-item-title">${escapeHTML(r.title)}</span>
         <div style="display:flex; align-items:center; gap:8px;">
           <span class="reward-item-cost"><i class="fa-solid fa-coins"></i> ${r.cost} G</span>
           <span class="reward-badge-type ${r.is_custom ? 'custom' : ''}">${r.is_custom ? 'Self-Reward' : 'Standard'}</span>
         </div>
       </div>
-      <button class="rpg-btn-sm primary-glow" onclick="purchaseReward(${r.id})" ${!canAfford ? 'disabled' : ''}>
-        Buy
-      </button>
+      <div class="reward-actions">
+        <button class="reward-btn-icon" onclick="editReward(${r.id})" title="Edit Reward"><i class="fa-solid fa-pen"></i></button>
+        <button class="reward-btn-icon delete" onclick="deleteReward(${r.id})" title="Delete Reward"><i class="fa-solid fa-trash-can"></i></button>
+        <button class="rpg-btn-sm primary-glow" onclick="purchaseReward(${r.id})" ${!canAfford ? 'disabled' : ''}>Buy</button>
+      </div>
     `;
     grid.appendChild(card);
   });
@@ -1528,6 +1657,53 @@ function purchaseReward(rewardId) {
   alert(`✨ PURCHASED: "${r.title}"!\n\n-${r.cost} Gold deducted. Go enjoy your real-life reward!`);
   
   renderShop();
+}
+
+function editReward(rewardId) {
+  const rewards = DB.get(DB.KEYS.REWARDS);
+  const r = rewards.find(item => item.id === rewardId);
+  if (!r) return;
+
+  const detailsEl = document.getElementById(`reward-details-${rewardId}`);
+  if (!detailsEl) return;
+
+  detailsEl.innerHTML = `
+    <input type="text" class="reward-edit-input" id="reward-edit-title-${rewardId}" value="${escapeHTML(r.title)}" placeholder="Reward name..." style="width:100%; margin-bottom:6px;">
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <input type="number" class="reward-edit-input" id="reward-edit-cost-${rewardId}" value="${r.cost}" min="1" placeholder="Cost" style="width:90px;">
+      <button class="rpg-btn-sm primary-glow" onclick="saveRewardEdit(${rewardId})"><i class="fa-solid fa-check"></i> Save</button>
+      <button class="rpg-btn-sm secondary-glow" onclick="renderShop()">Cancel</button>
+    </div>
+  `;
+}
+
+function saveRewardEdit(rewardId) {
+  const titleEl = document.getElementById(`reward-edit-title-${rewardId}`);
+  const costEl = document.getElementById(`reward-edit-cost-${rewardId}`);
+
+  const newTitle = titleEl ? titleEl.value.trim() : '';
+  const newCost = costEl ? parseInt(costEl.value) : 0;
+
+  if (!newTitle) {
+    alert('Reward title cannot be empty!');
+    return;
+  }
+  if (isNaN(newCost) || newCost < 1) {
+    alert('Please enter a valid cost (minimum 1 Gold).');
+    return;
+  }
+
+  DB.update(DB.KEYS.REWARDS, rewardId, { title: newTitle, cost: newCost });
+  SoundFX.play('coin');
+  renderShop();
+}
+
+function deleteReward(rewardId) {
+  if (confirm('Are you sure you want to remove this reward from the shop?')) {
+    DB.delete(DB.KEYS.REWARDS, rewardId);
+    SoundFX.play('click');
+    renderShop();
+  }
 }
 
 // ==================== REAL-TIME CROSS-TAB SYNC LOGIC ====================
@@ -1694,6 +1870,176 @@ function resetDatabase() {
     DB.init();
     alert("Database restored to defaults. Logging out...");
     handleLogout();
+  }
+}
+
+// ==================== AVATAR SELECTION ====================
+function openAvatarModal() {
+  SoundFX.play('click');
+  const grid = document.getElementById('avatar-catalog-grid');
+  grid.innerHTML = '';
+
+  const AVATAR_CLASSES = [
+    { emoji: '🛡️', name: 'Guardian' },
+    { emoji: '⚔️', name: 'Warrior' },
+    { emoji: '🗡️', name: 'Assassin' },
+    { emoji: '🏹', name: 'Ranger' },
+    { emoji: '🔮', name: 'Mage' },
+    { emoji: '🧙', name: 'Wizard' },
+    { emoji: '🌟', name: 'Paladin' },
+    { emoji: '💀', name: 'Necromancer' },
+    { emoji: '🐉', name: 'Dragonlord' },
+    { emoji: '🦊', name: 'Trickster' },
+    { emoji: '🌿', name: 'Druid' },
+    { emoji: '⚡', name: 'Thunderlord' },
+    { emoji: '🔥', name: 'Pyromancer' },
+    { emoji: '🌊', name: 'Aquamancer' },
+    { emoji: '🌙', name: 'Shadowblade' },
+    { emoji: '☀️', name: 'Solar Knight' },
+    { emoji: '🦅', name: 'Eagle Eye' },
+    { emoji: '🐺', name: 'Wolfkin' },
+    { emoji: '🌺', name: 'Enchanter' },
+    { emoji: '👑', name: 'Sovereign' },
+    { emoji: '🎯', name: 'Marksman' },
+    { emoji: '🧬', name: 'Alchemist' },
+    { emoji: '🌀', name: 'Vortex' },
+    { emoji: '🏔️', name: 'Earthshaker' },
+  ];
+
+  const currentAvatar = state.currentCharacter ? state.currentCharacter.avatar : '🛡️';
+
+  AVATAR_CLASSES.forEach(a => {
+    const item = document.createElement('div');
+    item.className = `avatar-catalog-item ${a.emoji === currentAvatar ? 'selected' : ''}`;
+    item.onclick = () => selectAvatar(a.emoji);
+    item.innerHTML = `
+      <div class="avatar-catalog-emoji">${a.emoji}</div>
+      <div class="avatar-catalog-name">${a.name}</div>
+    `;
+    grid.appendChild(item);
+  });
+
+  openModal('avatar-modal');
+}
+
+function selectAvatar(emoji) {
+  SoundFX.play('coin');
+
+  const chars = DB.get(DB.KEYS.CHARACTERS);
+  const char = chars.find(c => c.user_id === state.currentUser.id);
+  if (!char) return;
+
+  DB.update(DB.KEYS.CHARACTERS, char.id, { avatar: emoji });
+  state.currentCharacter.avatar = emoji;
+
+  // Update sidebar avatar display
+  document.getElementById('char-avatar').innerText = emoji;
+
+  // Update selection state in grid
+  document.querySelectorAll('.avatar-catalog-item').forEach(item => {
+    const itemEmoji = item.querySelector('.avatar-catalog-emoji').innerText;
+    item.classList.toggle('selected', itemEmoji === emoji);
+  });
+
+  logAdventureEvent(state.currentUser.id, 'general', `Changed avatar class to ${emoji}`);
+  broadcastSync({ type: 'CHARACTER_STATS_UPDATED', userId: state.currentUser.id });
+}
+
+// ==================== SQL EXPORT ====================
+function openSQLExportModal() {
+  SoundFX.play('click');
+
+  const users = DB.get(DB.KEYS.USERS);
+  const characters = DB.get(DB.KEYS.CHARACTERS);
+  const workspaces = DB.get(DB.KEYS.WORKSPACES);
+  const members = DB.get(DB.KEYS.MEMBERS);
+  const quests = DB.get(DB.KEYS.QUESTS);
+  const subQuests = DB.get(DB.KEYS.SUB_QUESTS);
+  const comments = DB.get(DB.KEYS.COMMENTS);
+  const rewards = DB.get(DB.KEYS.REWARDS);
+  const logs = DB.get(DB.KEYS.LOGS);
+
+  // Helper to escape SQL single quotes
+  const sqlEsc = (s) => s ? String(s).replace(/'/g, "''") : '';
+
+  // ---- PostgreSQL / Supabase SQL ----
+  let pgSQL = `-- QuestBoard PostgreSQL Schema (Supabase Ready)\n-- Generated: ${new Date().toISOString()}\n\n`;
+  pgSQL += `SET session_replication_role = 'replica';\n`;
+  pgSQL += `DROP TABLE IF EXISTS adventure_logs CASCADE;\nDROP TABLE IF EXISTS comments CASCADE;\nDROP TABLE IF EXISTS sub_quests CASCADE;\nDROP TABLE IF EXISTS rewards CASCADE;\nDROP TABLE IF EXISTS quests CASCADE;\nDROP TABLE IF EXISTS workspace_members CASCADE;\nDROP TABLE IF EXISTS workspaces CASCADE;\nDROP TABLE IF EXISTS characters CASCADE;\nDROP TABLE IF EXISTS users CASCADE;\n`;
+  pgSQL += `SET session_replication_role = 'origin';\n\n`;
+
+  pgSQL += `CREATE TABLE users (\n  id BIGSERIAL PRIMARY KEY,\n  username VARCHAR(100) NOT NULL UNIQUE,\n  email VARCHAR(255) NOT NULL UNIQUE,\n  password VARCHAR(255) NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n`;
+  pgSQL += `CREATE TABLE characters (\n  id BIGSERIAL PRIMARY KEY,\n  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n  level INTEGER DEFAULT 1,\n  xp INTEGER DEFAULT 0,\n  hp INTEGER DEFAULT 100,\n  gold INTEGER DEFAULT 50,\n  avatar VARCHAR(20) DEFAULT '🛡️',\n  updated_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n`;
+  pgSQL += `CREATE TABLE workspaces (\n  id BIGSERIAL PRIMARY KEY,\n  title VARCHAR(255) NOT NULL,\n  description TEXT,\n  is_group BOOLEAN DEFAULT FALSE,\n  created_by BIGINT NOT NULL REFERENCES users(id),\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n`;
+  pgSQL += `CREATE TABLE workspace_members (\n  id BIGSERIAL PRIMARY KEY,\n  workspace_id BIGINT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,\n  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n  joined_at TIMESTAMPTZ DEFAULT NOW(),\n  UNIQUE(workspace_id, user_id)\n);\n\n`;
+  pgSQL += `CREATE TABLE quests (\n  id BIGSERIAL PRIMARY KEY,\n  workspace_id BIGINT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,\n  assigned_to BIGINT REFERENCES users(id) ON DELETE SET NULL,\n  title VARCHAR(255) NOT NULL,\n  description TEXT,\n  status VARCHAR(20) DEFAULT 'todo' CHECK (status IN ('todo','inprogress','done')),\n  difficulty VARCHAR(10) DEFAULT 'medium' CHECK (difficulty IN ('easy','medium','hard','epic')),\n  deadline TIMESTAMPTZ,\n  penalized BOOLEAN DEFAULT FALSE,\n  "order" INTEGER DEFAULT 10,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n`;
+  pgSQL += `CREATE TABLE sub_quests (\n  id BIGSERIAL PRIMARY KEY,\n  quest_id BIGINT NOT NULL REFERENCES quests(id) ON DELETE CASCADE,\n  description TEXT NOT NULL,\n  is_completed BOOLEAN DEFAULT FALSE,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n`;
+  pgSQL += `CREATE TABLE comments (\n  id BIGSERIAL PRIMARY KEY,\n  quest_id BIGINT NOT NULL REFERENCES quests(id) ON DELETE CASCADE,\n  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n  username VARCHAR(100) NOT NULL,\n  content TEXT NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n`;
+  pgSQL += `CREATE TABLE rewards (\n  id BIGSERIAL PRIMARY KEY,\n  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n  title VARCHAR(255) NOT NULL,\n  cost INTEGER NOT NULL DEFAULT 50,\n  is_custom BOOLEAN DEFAULT FALSE,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n`;
+  pgSQL += `CREATE TABLE adventure_logs (\n  id BIGSERIAL PRIMARY KEY,\n  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n  type VARCHAR(50) NOT NULL,\n  message TEXT NOT NULL,\n  timestamp TIMESTAMPTZ DEFAULT NOW()\n);\n\n`;
+
+  if (users.length > 0) { pgSQL += `-- Users\nINSERT INTO users (id, username, email, password) VALUES\n`; pgSQL += users.map(u => `  (${u.id}, '${sqlEsc(u.username)}', '${sqlEsc(u.email)}', '${sqlEsc(u.password)}')`).join(',\n') + `;\n\n`; }
+  if (characters.length > 0) { pgSQL += `-- Characters\nINSERT INTO characters (id, user_id, level, xp, hp, gold, avatar) VALUES\n`; pgSQL += characters.map(c => `  (${c.id}, ${c.user_id}, ${c.level}, ${c.xp}, ${c.hp}, ${c.gold}, '${sqlEsc(c.avatar)}')`).join(',\n') + `;\n\n`; }
+  if (workspaces.length > 0) { pgSQL += `-- Workspaces\nINSERT INTO workspaces (id, title, description, is_group, created_by) VALUES\n`; pgSQL += workspaces.map(w => `  (${w.id}, '${sqlEsc(w.title)}', '${sqlEsc(w.description || '')}', ${w.is_group}, ${w.created_by})`).join(',\n') + `;\n\n`; }
+  if (members.length > 0) { pgSQL += `-- Workspace Members\nINSERT INTO workspace_members (id, workspace_id, user_id) VALUES\n`; pgSQL += members.map(m => `  (${m.id}, ${m.workspace_id}, ${m.user_id})`).join(',\n') + `;\n\n`; }
+  if (quests.length > 0) { pgSQL += `-- Quests\nINSERT INTO quests (id, workspace_id, assigned_to, title, description, status, difficulty, deadline, penalized, "order") VALUES\n`; pgSQL += quests.map(q => `  (${q.id}, ${q.workspace_id}, ${q.assigned_to || 'NULL'}, '${sqlEsc(q.title)}', '${sqlEsc(q.description || '')}', '${q.status}', '${q.difficulty}', '${q.deadline}', ${q.penalized}, ${q.order || 10})`).join(',\n') + `;\n\n`; }
+  if (subQuests.length > 0) { pgSQL += `-- Sub Quests\nINSERT INTO sub_quests (id, quest_id, description, is_completed) VALUES\n`; pgSQL += subQuests.map(sq => `  (${sq.id}, ${sq.quest_id}, '${sqlEsc(sq.description)}', ${sq.is_completed})`).join(',\n') + `;\n\n`; }
+  if (comments.length > 0) { pgSQL += `-- Comments\nINSERT INTO comments (id, quest_id, user_id, username, content, created_at) VALUES\n`; pgSQL += comments.map(c => `  (${c.id}, ${c.quest_id}, ${c.user_id}, '${sqlEsc(c.username)}', '${sqlEsc(c.content)}', '${c.created_at}')`).join(',\n') + `;\n\n`; }
+  if (rewards.length > 0) { pgSQL += `-- Rewards\nINSERT INTO rewards (id, user_id, title, cost, is_custom) VALUES\n`; pgSQL += rewards.map(r => `  (${r.id}, ${r.user_id}, '${sqlEsc(r.title)}', ${r.cost}, ${r.is_custom})`).join(',\n') + `;\n\n`; }
+  if (logs.length > 0) { pgSQL += `-- Adventure Logs\nINSERT INTO adventure_logs (id, user_id, type, message, timestamp) VALUES\n`; pgSQL += logs.map(l => `  (${l.id}, ${l.user_id}, '${sqlEsc(l.type)}', '${sqlEsc(l.message)}', '${l.timestamp}')`).join(',\n') + `;\n\n`; }
+
+  pgSQL += `-- Reset sequences\n`;
+  [[users,'users'],[characters,'characters'],[workspaces,'workspaces'],[members,'workspace_members'],[quests,'quests'],[subQuests,'sub_quests'],[comments,'comments'],[rewards,'rewards'],[logs,'adventure_logs']].forEach(([data, table]) => {
+    if (data && data.length > 0) { const maxId = Math.max(...data.map(d => d.id)); pgSQL += `SELECT setval('${table}_id_seq', ${maxId});\n`; }
+  });
+
+  document.getElementById('sql-export-postgres').value = pgSQL;
+
+  // ---- MySQL / phpMyAdmin SQL ----
+  let mySQL = `-- QuestBoard MySQL Schema (phpMyAdmin Ready)\n-- Generated: ${new Date().toISOString()}\n\nSET FOREIGN_KEY_CHECKS = 0;\nDROP TABLE IF EXISTS adventure_logs;\nDROP TABLE IF EXISTS comments;\nDROP TABLE IF EXISTS sub_quests;\nDROP TABLE IF EXISTS rewards;\nDROP TABLE IF EXISTS quests;\nDROP TABLE IF EXISTS workspace_members;\nDROP TABLE IF EXISTS workspaces;\nDROP TABLE IF EXISTS characters;\nDROP TABLE IF EXISTS users;\nSET FOREIGN_KEY_CHECKS = 1;\n\n`;
+
+  mySQL += `CREATE TABLE users (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  username VARCHAR(100) NOT NULL UNIQUE,\n  email VARCHAR(255) NOT NULL UNIQUE,\n  password VARCHAR(255) NOT NULL,\n  created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\n`;
+  mySQL += `CREATE TABLE characters (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  user_id INT NOT NULL,\n  level INT DEFAULT 1,\n  xp INT DEFAULT 0,\n  hp INT DEFAULT 100,\n  gold INT DEFAULT 50,\n  avatar VARCHAR(20) DEFAULT '🛡️',\n  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\n`;
+  mySQL += `CREATE TABLE workspaces (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  title VARCHAR(255) NOT NULL,\n  description TEXT,\n  is_group TINYINT(1) DEFAULT 0,\n  created_by INT NOT NULL,\n  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n  FOREIGN KEY (created_by) REFERENCES users(id)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\n`;
+  mySQL += `CREATE TABLE workspace_members (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  workspace_id INT NOT NULL,\n  user_id INT NOT NULL,\n  joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n  UNIQUE KEY unique_member (workspace_id, user_id),\n  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,\n  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\n`;
+  mySQL += "CREATE TABLE quests (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  workspace_id INT NOT NULL,\n  assigned_to INT,\n  title VARCHAR(255) NOT NULL,\n  description TEXT,\n  status ENUM('todo','inprogress','done') DEFAULT 'todo',\n  difficulty ENUM('easy','medium','hard','epic') DEFAULT 'medium',\n  deadline DATETIME,\n  penalized TINYINT(1) DEFAULT 0,\n  `order` INT DEFAULT 10,\n  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,\n  FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\n";
+  mySQL += `CREATE TABLE sub_quests (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  quest_id INT NOT NULL,\n  description TEXT NOT NULL,\n  is_completed TINYINT(1) DEFAULT 0,\n  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n  FOREIGN KEY (quest_id) REFERENCES quests(id) ON DELETE CASCADE\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\n`;
+  mySQL += `CREATE TABLE comments (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  quest_id INT NOT NULL,\n  user_id INT NOT NULL,\n  username VARCHAR(100) NOT NULL,\n  content TEXT NOT NULL,\n  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n  FOREIGN KEY (quest_id) REFERENCES quests(id) ON DELETE CASCADE,\n  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\n`;
+  mySQL += `CREATE TABLE rewards (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  user_id INT NOT NULL,\n  title VARCHAR(255) NOT NULL,\n  cost INT NOT NULL DEFAULT 50,\n  is_custom TINYINT(1) DEFAULT 0,\n  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\n`;
+  mySQL += `CREATE TABLE adventure_logs (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  user_id INT NOT NULL,\n  type VARCHAR(50) NOT NULL,\n  message TEXT NOT NULL,\n  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,\n  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\n`;
+
+  if (users.length > 0) { mySQL += `-- Users\nINSERT INTO users (id, username, email, password) VALUES\n`; mySQL += users.map(u => `  (${u.id}, '${sqlEsc(u.username)}', '${sqlEsc(u.email)}', '${sqlEsc(u.password)}')`).join(',\n') + `;\n\n`; }
+  if (characters.length > 0) { mySQL += `-- Characters\nINSERT INTO characters (id, user_id, level, xp, hp, gold, avatar) VALUES\n`; mySQL += characters.map(c => `  (${c.id}, ${c.user_id}, ${c.level}, ${c.xp}, ${c.hp}, ${c.gold}, '${sqlEsc(c.avatar)}')`).join(',\n') + `;\n\n`; }
+  if (workspaces.length > 0) { mySQL += `-- Workspaces\nINSERT INTO workspaces (id, title, description, is_group, created_by) VALUES\n`; mySQL += workspaces.map(w => `  (${w.id}, '${sqlEsc(w.title)}', '${sqlEsc(w.description || '')}', ${w.is_group ? 1 : 0}, ${w.created_by})`).join(',\n') + `;\n\n`; }
+  if (members.length > 0) { mySQL += `-- Workspace Members\nINSERT INTO workspace_members (id, workspace_id, user_id) VALUES\n`; mySQL += members.map(m => `  (${m.id}, ${m.workspace_id}, ${m.user_id})`).join(',\n') + `;\n\n`; }
+  if (quests.length > 0) { mySQL += "-- Quests\nINSERT INTO quests (id, workspace_id, assigned_to, title, description, status, difficulty, deadline, penalized, `order`) VALUES\n"; mySQL += quests.map(q => { const dl = new Date(q.deadline).toISOString().replace('T',' ').slice(0,19); return `  (${q.id}, ${q.workspace_id}, ${q.assigned_to||'NULL'}, '${sqlEsc(q.title)}', '${sqlEsc(q.description||'')}', '${q.status}', '${q.difficulty}', '${dl}', ${q.penalized?1:0}, ${q.order||10})`; }).join(',\n') + `;\n\n`; }
+  if (subQuests.length > 0) { mySQL += `-- Sub Quests\nINSERT INTO sub_quests (id, quest_id, description, is_completed) VALUES\n`; mySQL += subQuests.map(sq => `  (${sq.id}, ${sq.quest_id}, '${sqlEsc(sq.description)}', ${sq.is_completed?1:0})`).join(',\n') + `;\n\n`; }
+  if (comments.length > 0) { mySQL += `-- Comments\nINSERT INTO comments (id, quest_id, user_id, username, content, created_at) VALUES\n`; mySQL += comments.map(c => { const ca = new Date(c.created_at).toISOString().replace('T',' ').slice(0,19); return `  (${c.id}, ${c.quest_id}, ${c.user_id}, '${sqlEsc(c.username)}', '${sqlEsc(c.content)}', '${ca}')`; }).join(',\n') + `;\n\n`; }
+  if (rewards.length > 0) { mySQL += `-- Rewards\nINSERT INTO rewards (id, user_id, title, cost, is_custom) VALUES\n`; mySQL += rewards.map(r => `  (${r.id}, ${r.user_id}, '${sqlEsc(r.title)}', ${r.cost}, ${r.is_custom?1:0})`).join(',\n') + `;\n\n`; }
+  if (logs.length > 0) { mySQL += `-- Adventure Logs\nINSERT INTO adventure_logs (id, user_id, type, message, timestamp) VALUES\n`; mySQL += logs.map(l => { const ts = new Date(l.timestamp).toISOString().replace('T',' ').slice(0,19); return `  (${l.id}, ${l.user_id}, '${sqlEsc(l.type)}', '${sqlEsc(l.message)}', '${ts}')`; }).join(',\n') + `;\n\n`; }
+
+  document.getElementById('sql-export-mysql').value = mySQL;
+  openModal('sql-export-modal');
+}
+
+function copySQLText(elementId) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  el.select();
+  el.setSelectionRange(0, 99999);
+  try {
+    navigator.clipboard.writeText(el.value).then(() => {
+      SoundFX.play('coin');
+      alert('✅ SQL copied to clipboard! Paste it in phpMyAdmin or Supabase SQL editor.');
+    }).catch(() => {
+      document.execCommand('copy');
+      SoundFX.play('coin');
+      alert('✅ SQL copied to clipboard!');
+    });
+  } catch (err) {
+    document.execCommand('copy');
+    SoundFX.play('coin');
+    alert('✅ SQL copied to clipboard!');
   }
 }
 
