@@ -96,6 +96,12 @@ const DB = {
     const newRow = { id: newId, ...row };
     data.push(newRow);
     this.set(table, data);
+    
+    // Asynchronously sync to Supabase
+    if (typeof syncInsert === 'function') {
+      syncInsert(table, newRow);
+    }
+    
     return newRow;
   },
 
@@ -105,6 +111,12 @@ const DB = {
     if (index !== -1) {
       data[index] = { ...data[index], ...updates };
       this.set(table, data);
+      
+      // Asynchronously sync to Supabase
+      if (typeof syncUpdate === 'function') {
+        syncUpdate(table, id, data[index]);
+      }
+      
       return data[index];
     }
     return null;
@@ -114,6 +126,12 @@ const DB = {
     const data = this.get(table);
     const filtered = data.filter(item => item.id != id);
     this.set(table, filtered);
+    
+    // Asynchronously sync to Supabase
+    if (typeof syncDelete === 'function') {
+      syncDelete(table, id);
+    }
+    
     return filtered;
   }
 };
@@ -271,9 +289,18 @@ let state = {
 const syncChannel = new BroadcastChannel('questboard_sync');
 
 // ==================== APP INIT ====================
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   DB.init();
   setupAudioControl();
+  
+  // Sync with Supabase if configured
+  if (typeof initSupabase === 'function') {
+    const client = await initSupabase();
+    if (client) {
+      await syncWithSupabase(client);
+    }
+  }
+  
   checkSession();
   
   // Listen for real-time channel sync notifications
