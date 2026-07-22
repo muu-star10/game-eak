@@ -25,11 +25,16 @@ async function initSupabase() {
   try {
     const res = await fetch('/api/env');
     if (res.ok) {
-      const data = await res.json();
-      if (data.SUPABASE_URL && data.SUPABASE_KEY) {
-        url = data.SUPABASE_URL;
-        key = data.SUPABASE_KEY;
-        console.log("Supabase config loaded dynamically from Vercel API.");
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.SUPABASE_URL && data.SUPABASE_KEY) {
+          url = data.SUPABASE_URL;
+          key = data.SUPABASE_KEY;
+          console.log("Supabase config loaded dynamically from Vercel API.");
+        }
+      } else {
+        console.log("/api/env response is not JSON (likely running on local static dev server).");
       }
     }
   } catch (e) {
