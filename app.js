@@ -1,6 +1,61 @@
-// ==================== DATABASE LAYER (LOCALSTORAGE MOCK DB) ====================
+// ==================== DATABASE LAYER (IN-MEMORY DB CACHE) ====================
+// Clear localStorage completely to prevent mixing with stale local storage data
+localStorage.clear();
+
+// Expose default mock data globally for seeding empty databases
+const now = new Date();
+const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+window.DEFAULT_MOCK_DATA = {
+  qb_users: [
+    { id: 1, username: 'ranger_najmu', email: 'najmu@quest.com', password: 'password123' },
+    { id: 2, username: 'mage_sarah', email: 'sarah@quest.com', password: 'password123' },
+    { id: 3, username: 'warrior_alex', email: 'alex@quest.com', password: 'password123' }
+  ],
+  qb_characters: [
+    { id: 1, user_id: 1, level: 1, xp: 45, hp: 100, gold: 120, avatar: '🛡️' },
+    { id: 2, user_id: 2, level: 2, xp: 120, hp: 90, gold: 240, avatar: '🔮' },
+    { id: 3, user_id: 3, level: 1, xp: 10, hp: 100, gold: 50, avatar: '🛡️' }
+  ],
+  qb_workspaces: [
+    { id: 1, title: 'Solo Campaign: Personal Growth', description: 'My solo habits, routines, and personal projects.', is_group: false, created_by: 1 },
+    { id: 2, title: 'Guild: Biology Group Project', description: 'Group research project on ecosystem dynamics.', is_group: true, created_by: 1 }
+  ],
+  qb_workspace_members: [
+    { id: 1, workspace_id: 2, user_id: 1 },
+    { id: 2, workspace_id: 2, user_id: 2 },
+    { id: 3, workspace_id: 2, user_id: 3 }
+  ],
+  qb_quests: [
+    { id: 1, workspace_id: 1, assigned_to: 1, title: 'Daily Workout (Cardio)', description: 'Run for 30 minutes in the park and do basic stretches.', status: 'todo', difficulty: 'easy', deadline: tomorrow.toISOString(), penalized: false, order: 10 },
+    { id: 2, workspace_id: 1, assigned_to: 1, title: 'Read Chapter 4 of Math Book', description: 'Read and take summary notes of Calculus derivatives.', status: 'inprogress', difficulty: 'medium', deadline: tomorrow.toISOString(), penalized: false, order: 20 },
+    { id: 3, workspace_id: 2, assigned_to: 2, title: 'Write Introduction Section', description: 'Draft the ecosystem report introduction paragraph.', status: 'todo', difficulty: 'medium', deadline: tomorrow.toISOString(), penalized: false, order: 10 },
+    { id: 4, workspace_id: 2, assigned_to: 1, title: 'Draw Food Web Diagram', description: 'Draw the diagram vectors for pond and forest trophic webs.', status: 'inprogress', difficulty: 'hard', deadline: tomorrow.toISOString(), penalized: false, order: 10 },
+    { id: 5, workspace_id: 2, assigned_to: 3, title: 'Assemble Final Slideshow', description: 'Merge slides from all members and design templates.', status: 'todo', difficulty: 'epic', deadline: yesterday.toISOString(), penalized: false, order: 20 }
+  ],
+  qb_sub_quests: [
+    { id: 1, quest_id: 2, description: 'Read pages 120-135', is_completed: true },
+    { id: 2, quest_id: 2, description: 'Solve 5 sample exercises', is_completed: false },
+    { id: 3, quest_id: 4, description: 'Gather pond species list', is_completed: true },
+    { id: 4, quest_id: 4, description: 'Design vector layout', is_completed: true }
+  ],
+  qb_comments: [
+    { id: 1, quest_id: 4, user_id: 2, username: 'mage_sarah', content: 'I uploaded the pond photos in the group folder for reference!', created_at: new Date(now.getTime() - 3600000).toISOString() },
+    { id: 2, quest_id: 4, user_id: 1, username: 'ranger_najmu', content: 'Great, thanks Sarah! I will start sketching them now.', created_at: new Date(now.getTime() - 1800000).toISOString() }
+  ],
+  qb_rewards: [
+    { id: 1, user_id: 1, title: 'Play video games for 1 hour', cost: 50, is_custom: false },
+    { id: 2, user_id: 1, title: 'Eat a slice of double chocolate cake', cost: 120, is_custom: false },
+    { id: 3, user_id: 1, title: 'Buy a fantasy novel book', cost: 350, is_custom: false },
+    { id: 4, user_id: 2, title: 'Watch a movie episode', cost: 50, is_custom: false }
+  ],
+  qb_adventure_logs: [
+    { id: 1, user_id: 1, type: 'general', message: 'Character created! Welcome to the realm.', timestamp: now.toISOString() }
+  ]
+};
+
 const DB = {
-  // Key names in LocalStorage
   KEYS: {
     USERS: 'qb_users',
     CHARACTERS: 'qb_characters',
@@ -13,81 +68,21 @@ const DB = {
     LOGS: 'qb_adventure_logs'
   },
 
+  cache: {},
+
   init() {
-    // Helper to seed localStorage if empty
-    const initTable = (key, defaultData) => {
-      if (!localStorage.getItem(key)) {
-        localStorage.setItem(key, JSON.stringify(defaultData));
-      }
-    };
-
-    // Seed tables
-    initTable(this.KEYS.USERS, [
-      { id: 1, username: 'ranger_najmu', email: 'najmu@quest.com', password: 'password123' },
-      { id: 2, username: 'mage_sarah', email: 'sarah@quest.com', password: 'password123' },
-      { id: 3, username: 'warrior_alex', email: 'alex@quest.com', password: 'password123' }
-    ]);
-
-    initTable(this.KEYS.CHARACTERS, [
-      { id: 1, user_id: 1, level: 1, xp: 45, hp: 100, gold: 120, avatar: '🛡️' },
-      { id: 2, user_id: 2, level: 2, xp: 120, hp: 90, gold: 240, avatar: '🔮' },
-      { id: 3, user_id: 3, level: 1, xp: 10, hp: 100, gold: 50, avatar: '🛡️' }
-    ]);
-
-    initTable(this.KEYS.WORKSPACES, [
-      { id: 1, title: 'Solo Campaign: Personal Growth', description: 'My solo habits, routines, and personal projects.', is_group: false, created_by: 1 },
-      { id: 2, title: 'Guild: Biology Group Project', description: 'Group research project on ecosystem dynamics.', is_group: true, created_by: 1 }
-    ]);
-
-    initTable(this.KEYS.MEMBERS, [
-      { id: 1, workspace_id: 2, user_id: 1 }, // najmu
-      { id: 2, workspace_id: 2, user_id: 2 }, // sarah
-      { id: 3, workspace_id: 2, user_id: 3 }  // alex
-    ]);
-
-    // Initial Quests
-    const now = new Date();
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    
-    initTable(this.KEYS.QUESTS, [
-      { id: 1, workspace_id: 1, assigned_to: 1, title: 'Daily Workout (Cardio)', description: 'Run for 30 minutes in the park and do basic stretches.', status: 'todo', difficulty: 'easy', deadline: tomorrow.toISOString(), penalized: false, order: 10 },
-      { id: 2, workspace_id: 1, assigned_to: 1, title: 'Read Chapter 4 of Math Book', description: 'Read and take summary notes of Calculus derivatives.', status: 'inprogress', difficulty: 'medium', deadline: tomorrow.toISOString(), penalized: false, order: 20 },
-      { id: 3, workspace_id: 2, assigned_to: 2, title: 'Write Introduction Section', description: 'Draft the ecosystem report introduction paragraph.', status: 'todo', difficulty: 'medium', deadline: tomorrow.toISOString(), penalized: false, order: 10 },
-      { id: 4, workspace_id: 2, assigned_to: 1, title: 'Draw Food Web Diagram', description: 'Draw the diagram vectors for pond and forest trophic webs.', status: 'inprogress', difficulty: 'hard', deadline: tomorrow.toISOString(), penalized: false, order: 10 },
-      { id: 5, workspace_id: 2, assigned_to: 3, title: 'Assemble Final Slideshow', description: 'Merge slides from all members and design templates.', status: 'todo', difficulty: 'epic', deadline: yesterday.toISOString(), penalized: false, order: 20 } // Overdue
-    ]);
-
-    initTable(this.KEYS.SUB_QUESTS, [
-      { id: 1, quest_id: 2, description: 'Read pages 120-135', is_completed: true },
-      { id: 2, quest_id: 2, description: 'Solve 5 sample exercises', is_completed: false },
-      { id: 3, quest_id: 4, description: 'Gather pond species list', is_completed: true },
-      { id: 4, quest_id: 4, description: 'Design vector layout', is_completed: true }
-    ]);
-
-    initTable(this.KEYS.COMMENTS, [
-      { id: 1, quest_id: 4, user_id: 2, username: 'mage_sarah', content: 'I uploaded the pond photos in the group folder for reference!', created_at: new Date(now.getTime() - 3600000).toISOString() },
-      { id: 2, quest_id: 4, user_id: 1, username: 'ranger_najmu', content: 'Great, thanks Sarah! I will start sketching them now.', created_at: new Date(now.getTime() - 1800000).toISOString() }
-    ]);
-
-    initTable(this.KEYS.REWARDS, [
-      { id: 1, user_id: 1, title: 'Play video games for 1 hour', cost: 50, is_custom: false },
-      { id: 2, user_id: 1, title: 'Eat a slice of double chocolate cake', cost: 120, is_custom: false },
-      { id: 3, user_id: 1, title: 'Buy a fantasy novel book', cost: 350, is_custom: false },
-      { id: 4, user_id: 2, title: 'Watch a movie episode', cost: 50, is_custom: false }
-    ]);
-
-    initTable(this.KEYS.LOGS, [
-      { id: 1, user_id: 1, type: 'general', message: 'Character created! Welcome to the realm.', timestamp: now.toISOString() }
-    ]);
+    // Initialize in-memory cache tables
+    for (const key of Object.values(this.KEYS)) {
+      this.cache[key] = [];
+    }
   },
 
   get(table) {
-    return JSON.parse(localStorage.getItem(table)) || [];
+    return this.cache[table] || [];
   },
 
   set(table, data) {
-    localStorage.setItem(table, JSON.stringify(data));
+    this.cache[table] = data;
   },
 
   insert(table, row) {
@@ -97,7 +92,7 @@ const DB = {
     data.push(newRow);
     this.set(table, data);
     
-    // Asynchronously sync to Supabase
+    // Asynchronously sync to local Express backend
     if (typeof syncInsert === 'function') {
       syncInsert(table, newRow);
     }
@@ -112,7 +107,7 @@ const DB = {
       data[index] = { ...data[index], ...updates };
       this.set(table, data);
       
-      // Asynchronously sync to Supabase
+      // Asynchronously sync to local Express backend
       if (typeof syncUpdate === 'function') {
         syncUpdate(table, id, data[index]);
       }
@@ -127,7 +122,7 @@ const DB = {
     const filtered = data.filter(item => item.id != id);
     this.set(table, filtered);
     
-    // Asynchronously sync to Supabase
+    // Asynchronously sync to local Express backend
     if (typeof syncDelete === 'function') {
       syncDelete(table, id);
     }
@@ -330,7 +325,18 @@ function checkSession() {
   const sessionUser = sessionStorage.getItem('qb_active_user');
   if (sessionUser) {
     const user = JSON.parse(sessionUser);
-    loginUser(user);
+    
+    // Ensure the session user exists in our newly loaded database cache
+    const users = DB.get(DB.KEYS.USERS);
+    const existingUser = users.find(u => u.id === user.id);
+    
+    if (existingUser) {
+      loginUser(existingUser);
+    } else {
+      console.warn("Session user not found in database. Logging out.");
+      sessionStorage.removeItem('qb_active_user');
+      showScreen('auth-screen');
+    }
   } else {
     showScreen('auth-screen');
   }

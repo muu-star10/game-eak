@@ -1,4 +1,4 @@
-// supabase-sync.js - Connects and synchronizes LocalStorage DB with Local Express Backend
+// supabase-sync.js - Connects and synchronizes In-Memory DB Cache with Local Express Backend
 
 let supabase = null;
 
@@ -35,9 +35,9 @@ async function initSupabase() {
 }
 
 /**
- * Syncs localStorage data with PostgreSQL via local Express API on page load.
- * If database is empty, it seeds it with current localStorage mock data.
- * Otherwise, it pulls down all data to overwrite local storage.
+ * Syncs DB cache with PostgreSQL via local Express API on page load.
+ * If database is empty, it seeds it with DEFAULT_MOCK_DATA.
+ * Otherwise, it pulls down all data to populate DB cache.
  */
 async function syncWithSupabase(client) {
   console.log("🔄 Synchronizing data with Local Express Backend...");
@@ -51,14 +51,11 @@ async function syncWithSupabase(client) {
     }
     const { hasUsers } = await res.json();
 
-    // 2. If database is empty, seed it with current localStorage data
+    // 2. If database is empty, seed it with DEFAULT_MOCK_DATA
     if (!hasUsers) {
-      console.log("🌱 Database is empty. Seeding local mock data to PostgreSQL...");
+      console.log("🌱 Database is empty. Seeding default mock data to PostgreSQL...");
       
-      const payload = {};
-      for (const localKey of Object.keys(TABLE_MAP)) {
-        payload[localKey] = JSON.parse(localStorage.getItem(localKey)) || [];
-      }
+      const payload = window.DEFAULT_MOCK_DATA || {};
 
       const seedRes = await fetch('/api/sync/seed', {
         method: 'POST',
@@ -71,9 +68,15 @@ async function syncWithSupabase(client) {
         throw new Error(errData.error || 'Failed to seed local data to PostgreSQL.');
       }
 
-      console.log("🎉 Database seeding completed successfully!");
+      // Populate DB in-memory cache with the default mock data we just seeded
+      for (const [localKey, rows] of Object.entries(payload)) {
+        DB.set(localKey, rows || []);
+        console.log(`✅ Loaded seed table '${TABLE_MAP[localKey]}': ${rows.length} rows.`);
+      }
+
+      console.log("🎉 Database seeding and cache initialization completed successfully!");
     } else {
-      // 3. Database is already seeded, pull all records to replace LocalStorage
+      // 3. Database is already seeded, pull all records to populate DB cache
       console.log("📥 Database is already seeded. Fetching latest data from PostgreSQL...");
 
       const pullRes = await fetch('/api/sync/pull');
@@ -84,10 +87,10 @@ async function syncWithSupabase(client) {
 
       const data = await pullRes.json();
       for (const [localKey, rows] of Object.entries(data)) {
-        localStorage.setItem(localKey, JSON.stringify(rows || []));
+        DB.set(localKey, rows || []);
         console.log(`✅ Pulled table '${TABLE_MAP[localKey]}': ${rows.length} rows.`);
       }
-      console.log("🎉 LocalStorage synced successfully with PostgreSQL!");
+      console.log("🎉 In-memory cache synced successfully with PostgreSQL!");
     }
   } catch (e) {
     console.error("❌ Exception during PostgreSQL synchronization:", e);
