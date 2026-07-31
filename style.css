@@ -190,13 +190,13 @@ p {
 
 /* ==================== AUTH SCREEN ==================== */
 .screen {
-  display: none;
+  display: none !important;
   height: 100vh;
   width: 100vw;
 }
 
 .screen.active {
-  display: flex;
+  display: flex !important;
 }
 
 #auth-screen {
@@ -360,7 +360,6 @@ p {
 
 /* ==================== DASHBOARD PANEL ==================== */
 #app-screen {
-  display: flex;
   background-color: var(--bg-dark);
 }
 
@@ -1684,3 +1683,211 @@ p {
   font-size: 13px !important;
   border-radius: 3px !important;
 }
+
+/* ==================== MOBILE RESPONSIVE SIDEBAR ==================== */
+.mobile-toggle-btn {
+  display: none;
+  background: rgba(212, 175, 55, 0.1);
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-size: 18px;
+  width: 38px;
+  height: 38px;
+  border-radius: 6px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.mobile-toggle-btn:hover {
+  background: rgba(212, 175, 55, 0.25);
+  box-shadow: 0 0 10px var(--border-glow);
+}
+
+.sidebar-close-btn {
+  display: none;
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 22px;
+  cursor: pointer;
+  z-index: 15;
+  transition: color 0.2s;
+}
+
+.sidebar-close-btn:hover {
+  color: var(--gold);
+}
+
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  z-index: 99;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.sidebar-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Quick Mobile Move Selector on Quest Cards */
+.mobile-card-actions {
+  display: none;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mobile-card-actions label {
+  font-size: 10px;
+  font-family: var(--font-display);
+  color: var(--text-muted);
+}
+
+.mobile-status-select {
+  background: rgba(0, 0, 0, 0.6) !important;
+  border: 1px solid var(--gold) !important;
+  color: var(--gold) !important;
+  font-size: 11px !important;
+  padding: 4px 8px !important;
+  border-radius: 4px !important;
+  cursor: pointer;
+}
+
+/* Mobile Kanban Tab Switcher Bar */
+.mobile-kanban-tabs {
+  display: none;
+  gap: 6px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scroll-behavior: smooth;
+}
+
+.m-tab {
+  flex: 1;
+  background: rgba(22, 27, 34, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: bold;
+  padding: 10px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.m-tab.active {
+  background: linear-gradient(135deg, rgba(27, 38, 59, 0.9) 0%, rgba(13, 17, 23, 0.9) 100%);
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow: 0 0 10px rgba(212, 175, 55, 0.2);
+}
+
+/* Touch drag over column highlight */
+.kanban-column.drag-over-touch {
+  border-color: var(--gold-glowing) !important;
+  box-shadow: 0 0 20px rgba(243, 156, 18, 0.4) !important;
+  background: rgba(212, 175, 55, 0.08) !important;
+}
+
+@media screen and (max-width: 900px) {
+  .mobile-toggle-btn {
+    display: inline-flex;
+  }
+
+  .sidebar-close-btn {
+    display: block;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 300px;
+    max-width: 85vw;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.9);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .content-area {
+    padding: 12px;
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  .workspace-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .mobile-kanban-tabs {
+    display: flex;
+  }
+
+  .mobile-card-actions {
+    display: flex;
+  }
+
+  /* Horizontal Swipeable Kanban Board on Mobile */
+  .kanban-board {
+    display: flex !important;
+    flex-direction: row !important;
+    grid-template-columns: none !important;
+    overflow-x: auto !important;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    gap: 12px;
+    padding-bottom: 16px;
+    height: calc(100vh - 170px);
+  }
+
+  .kanban-column {
+    flex: 0 0 86vw !important;
+    max-width: 380px;
+    scroll-snap-align: center;
+    scroll-snap-stop: always;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .card-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+}
+
+

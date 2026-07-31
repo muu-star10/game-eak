@@ -578,6 +578,8 @@ function selectDefaultWorkspace() {
   } else {
     // Hide board, show empty state
     document.getElementById('kanban-board-container').style.display = 'none';
+    const mTabs = document.getElementById('mobile-kanban-tabs');
+    if (mTabs) mTabs.style.display = 'none';
     document.getElementById('group-members-panel').style.display = 'none';
     document.getElementById('empty-workspace-state').style.display = 'flex';
   }
@@ -585,6 +587,7 @@ function selectDefaultWorkspace() {
 
 function selectWorkspace(wsId) {
   SoundFX.play('click');
+  closeSidebar();
   state.activeWorkspaceId = wsId;
   
   const workspaces = DB.get(DB.KEYS.WORKSPACES);
@@ -600,7 +603,9 @@ function selectWorkspace(wsId) {
 
   // Show/Hide board and members panel
   document.getElementById('empty-workspace-state').style.display = 'none';
-  document.getElementById('kanban-board-container').style.display = 'grid';
+  document.getElementById('kanban-board-container').style.display = 'flex';
+  const mTabs = document.getElementById('mobile-kanban-tabs');
+  if (mTabs) mTabs.style.display = window.innerWidth <= 900 ? 'flex' : 'none';
 
   const groupPanel = document.getElementById('group-members-panel');
   if (ws.is_group) {
@@ -766,9 +771,10 @@ function renderKanbanCards() {
     card.draggable = quest.status !== 'done';
     card.id = `quest-card-${quest.id}`;
     
-    // Drag event handlers
+    // Drag event handlers (desktop mouse + touch screen)
     card.addEventListener('dragstart', (e) => handleDragStart(e, quest.id, quest.status));
     card.addEventListener('dragend', handleDragEnd);
+    setupTouchDragHandlers(card, quest.id, quest.status);
 
     // Click anywhere on card (except form controls) opens details modal
     card.addEventListener('click', (e) => {
@@ -837,15 +843,153 @@ function renderKanbanCards() {
           </div>
         </div>
       </div>
+
+      <!-- Quick Mobile Status Switcher -->
+      <div class="mobile-card-actions">
+        <label><i class="fa-solid fa-arrows-left-right"></i> Move:</label>
+        <select class="mobile-status-select" onchange="moveQuestToColumn(${quest.id}, this.value)" onclick="event.stopPropagation()">
+          <option value="todo" ${quest.status === 'todo' ? 'selected' : ''}>🔵 TO DO</option>
+          <option value="inprogress" ${quest.status === 'inprogress' ? 'selected' : ''}>⚔️ IN PROGRESS</option>
+          <option value="done" ${quest.status === 'done' ? 'selected' : ''}>✅ DONE</option>
+        </select>
+      </div>
     `;
 
     lists[quest.status].appendChild(card);
     colCounts[quest.status]++;
   });
 
-  // Update headers count badge
+  // Update headers & mobile tab count badges
   Object.keys(counts).forEach(key => {
-    counts[key].innerText = colCounts[key];
+    if (counts[key]) counts[key].innerText = colCounts[key];
+    const mCountEl = document.getElementById(`m-count-${key}`);
+    if (mCountEl) mCountEl.innerText = colCounts[key];
+  });
+}
+
+// Mobile Tab Switcher
+function switchMobileKanbanTab(colKey) {
+  SoundFX.play('click');
+  document.querySelectorAll('.m-tab').forEach(btn => btn.classList.remove('active'));
+  const activeTab = document.getElementById(`mtab-${colKey}`);
+  if (activeTab) activeTab.classList.add('active');
+
+  const targetCol = document.getElementById(`col-${colKey}`);
+  if (targetCol) {
+    targetCol.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }
+}
+
+// Quick Move Quest Function (Mobile & Touch)
+function moveQuestToColumn(questId, targetColumn) {
+  const quests = DB.get(DB.KEYS.QUESTS);
+  const quest = quests.find(q => q.id === questId);
+  if (!quest || quest.status === targetColumn) return;
+
+  // RULE FR-1.3 (Sub-Quest completion checkout validation)
+  if (targetColumn === 'done') {
+    const subQuests = DB.get(DB.KEYS.SUB_QUESTS);
+    const qSubQuests = subQuests.filter(sq => sq.quest_id === questId);
+    const allCompleted = qSubQuests.every(sq => sq.is_completed);
+
+    if (!allCompleted) {
+      SoundFX.play('fail');
+      alert(`⚠️ QUEST LOCKED!\n\nYou must check off all Sub-Quests before you can resolve "${quest.title}".`);
+      renderKanbanCards();
+      return;
+    }
+  }
+
+  const sourceColumn = quest.status;
+  DB.update(DB.KEYS.QUESTS, questId, { status: targetColumn });
+  SoundFX.play('click');
+
+  if (targetColumn === 'done' && sourceColumn !== 'done') {
+    awardQuestRewards(quest);
+  }
+
+  renderKanbanCards();
+
+  broadcastSync({
+    type: 'QUEST_CARD_MOVED',
+    workspaceId: state.activeWorkspaceId,
+    questId: questId,
+    targetColumn: targetColumn
+  });
+}
+
+// Touch Drag & Drop Polyfill Handler for Mobile Devices
+let touchDragState = {
+  active: false,
+  questId: null,
+  sourceColumn: null,
+  ghostEl: null,
+  startX: 0,
+  startY: 0
+};
+
+function setupTouchDragHandlers(card, questId, status) {
+  card.addEventListener('touchstart', (e) => {
+    if (e.target.closest('button') || e.target.closest('select') || e.target.closest('input')) return;
+    const touch = e.touches[0];
+    touchDragState.active = true;
+    touchDragState.questId = questId;
+    touchDragState.sourceColumn = status;
+    touchDragState.startX = touch.clientX;
+    touchDragState.startY = touch.clientY;
+
+    // Create floating drag preview
+    const ghost = card.cloneNode(true);
+    ghost.style.position = 'fixed';
+    ghost.style.top = `${touch.clientY - 30}px`;
+    ghost.style.left = `${touch.clientX - 100}px`;
+    ghost.style.width = `${card.offsetWidth}px`;
+    ghost.style.opacity = '0.85';
+    ghost.style.pointerEvents = 'none';
+    ghost.style.zIndex = '9999';
+    ghost.style.transform = 'scale(0.95) rotate(3deg)';
+    ghost.style.boxShadow = '0 10px 25px rgba(212, 175, 55, 0.5)';
+    ghost.id = 'touch-drag-ghost';
+    document.body.appendChild(ghost);
+    touchDragState.ghostEl = ghost;
+  }, { passive: true });
+
+  card.addEventListener('touchmove', (e) => {
+    if (!touchDragState.active || !touchDragState.ghostEl) return;
+    const touch = e.touches[0];
+    touchDragState.ghostEl.style.top = `${touch.clientY - 30}px`;
+    touchDragState.ghostEl.style.left = `${touch.clientX - 100}px`;
+
+    // Highlight target column under finger
+    const elUnderFinger = document.elementFromPoint(touch.clientX, touch.clientY);
+    document.querySelectorAll('.kanban-column').forEach(c => c.classList.remove('drag-over-touch'));
+    if (elUnderFinger) {
+      const col = elUnderFinger.closest('.kanban-column');
+      if (col) col.classList.add('drag-over-touch');
+    }
+  }, { passive: true });
+
+  card.addEventListener('touchend', (e) => {
+    if (!touchDragState.active) return;
+    const touch = e.changedTouches[0];
+    if (touchDragState.ghostEl) {
+      touchDragState.ghostEl.remove();
+      touchDragState.ghostEl = null;
+    }
+    document.querySelectorAll('.kanban-column').forEach(c => c.classList.remove('drag-over-touch'));
+
+    const elUnderFinger = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (elUnderFinger) {
+      const targetCol = elUnderFinger.closest('.kanban-column');
+      if (targetCol) {
+        const colId = targetCol.id.replace('col-', '');
+        if (['todo', 'inprogress', 'done'].includes(colId)) {
+          moveQuestToColumn(touchDragState.questId, colId);
+        }
+      }
+    }
+    touchDragState.active = false;
+    touchDragState.questId = null;
   });
 }
 
@@ -2097,3 +2241,19 @@ function escapeHTML(str) {
     }[tag] || tag)
   );
 }
+
+// Mobile Sidebar Navigation Toggle
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (sidebar) sidebar.classList.toggle('open');
+  if (overlay) overlay.classList.toggle('active');
+}
+
+function closeSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (sidebar) sidebar.classList.remove('open');
+  if (overlay) overlay.classList.remove('active');
+}
+

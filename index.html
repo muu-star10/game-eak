@@ -56,8 +56,15 @@
 
   <!-- MAIN APP SCREEN -->
   <div id="app-screen" class="screen">
+    <!-- SIDEBAR OVERLAY FOR MOBILE -->
+    <div id="sidebar-overlay" class="sidebar-overlay" onclick="closeSidebar()"></div>
+
     <!-- SIDEBAR -->
     <aside class="sidebar">
+      <button class="sidebar-close-btn" onclick="closeSidebar()" title="Close Sidebar">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+
       <!-- CHARACTER SUMMARY CARD -->
       <div class="character-panel">
         <div class="character-avatar-container" onclick="openAvatarModal()" style="cursor: pointer;" title="Change Avatar Class">
@@ -135,9 +142,6 @@
         <button class="footer-btn" onclick="openShopModal()">
           <i class="fa-solid fa-store"></i> Reward Shop
         </button>
-        <button class="footer-btn" onclick="openModal('test-panel-modal')">
-          <i class="fa-solid fa-flask"></i> Debug Portal
-        </button>
         <button class="footer-btn logout" onclick="handleLogout()">
           <i class="fa-solid fa-right-from-bracket"></i> Logout
         </button>
@@ -148,9 +152,14 @@
     <main class="content-area">
       <!-- WORKSPACE HEADER -->
       <header class="workspace-header">
-        <div class="workspace-details">
-          <h2 id="current-workspace-title">Select a Workspace</h2>
-          <p id="current-workspace-desc">Choose or create a workspace to begin your adventure.</p>
+        <div class="workspace-details" style="display: flex; align-items: center; gap: 12px;">
+          <button class="mobile-toggle-btn" onclick="toggleSidebar()" title="Toggle Menu">
+            <i class="fa-solid fa-bars"></i>
+          </button>
+          <div>
+            <h2 id="current-workspace-title">Select a Workspace</h2>
+            <p id="current-workspace-desc">Choose or create a workspace to begin your adventure.</p>
+          </div>
         </div>
         
         <!-- Group Member Panel (Only visible for Group Workspaces) -->
@@ -163,6 +172,19 @@
           </button>
         </div>
       </header>
+
+      <!-- MOBILE KANBAN COLUMN TABS -->
+      <div class="mobile-kanban-tabs" id="mobile-kanban-tabs" style="display: none;">
+        <button class="m-tab active" id="mtab-todo" onclick="switchMobileKanbanTab('todo')">
+          <i class="fa-regular fa-circle-play text-todo"></i> TO DO (<span id="m-count-todo">0</span>)
+        </button>
+        <button class="m-tab" id="mtab-inprogress" onclick="switchMobileKanbanTab('inprogress')">
+          <i class="fa-solid fa-sword text-inprogress"></i> IN PROGRESS (<span id="m-count-inprogress">0</span>)
+        </button>
+        <button class="m-tab" id="mtab-done" onclick="switchMobileKanbanTab('done')">
+          <i class="fa-regular fa-circle-check text-done"></i> DONE (<span id="m-count-done">0</span>)
+        </button>
+      </div>
 
       <!-- KANBAN BOARD -->
       <div class="kanban-board" id="kanban-board-container" style="display: none;">
