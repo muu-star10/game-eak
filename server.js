@@ -214,6 +214,10 @@ app.get('*', (req, res) => {
 });
 
 // Start Server
-app.listen(PORT, () => {
-  console.log(`🚀 QuestBoard server running locally at http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🚀 QuestBoard server running locally at http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
